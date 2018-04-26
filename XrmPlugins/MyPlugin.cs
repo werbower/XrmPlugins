@@ -19,14 +19,10 @@ namespace XrmPlugins {
 
             // The InputParameters collection contains all the data passed in the message request.  
             if (context.InputParameters.Contains("Target")) {
-                // Obtain the target entity from the input parameters.  
+                // Obtain the target entity from the input parameters.
 
-
-                // Verify that the target entity represents an entity type you are expecting.   
-                // For example, an account. If not, the plug-in was not registered correctly.
-
-                Entity targetEntity = ((context.InputParameters["Target"] is Entity)) ? (Entity)context.InputParameters["Target"] : null;
-                EntityReference targetReference = ((context.InputParameters["Target"] is EntityReference)) ? (EntityReference)context.InputParameters["Target"] : null;
+                Entity targetEntity = context.InputParameters["Target"] as Entity;
+                EntityReference targetReference = context.InputParameters["Target"] as EntityReference;
 
                 if (targetEntity?.LogicalName == "new_specialentity" || targetReference?.LogicalName == "new_specialentity")// audit entity
                     return;
@@ -95,6 +91,9 @@ namespace XrmPlugins {
                     name = extractName(postEntity);
 
                     auditEntity["new_spentity"] = name;
+
+                    string new_spdescription = createString(postEntity);
+                    auditEntity["new_spdescription"] = new_spdescription;
                     //
                 }
                 #endregion
@@ -161,27 +160,62 @@ namespace XrmPlugins {
                     }
                 }
             }
-            
+
+        }
+
+        private string createString(Entity postEntity) {
+            if (postEntity == null)
+                return "";
+            StringBuilder sb = new StringBuilder("");
+            int counter = 0;
+            foreach(var kvp in postEntity.Attributes) {
+
+                if (kvp.Value == null)
+                    continue;
+                counter++;
+
+                if (sb.Length > 0) sb.Append("; ");
+                sb.Append($"{kvp.Key}");
+                //sb.Append($"[{kvp.Value.GetType().Name}]");
+                sb.Append($"[{stringVal(kvp.Value)}]");
+                if (counter >= 100)
+                    break;
+            }
+            return sb.ToString();
+        }
+        private static string stringVal(object val) {
+            if (val == null)
+                return "null";
+            //return "";
+            if (val is bool || val is int || val is decimal || val is string || val is Guid) {
+                return val.ToString();
+            } else if (val is DateTime dtVal) {
+                return dtVal.ToShortDateString();
+            } else if (val is EntityReference erVal) {
+                return $"{erVal.Name}({erVal.Id.ToString()}/{erVal.LogicalName})";
+            } else if (val is Money mVal) {
+                return mVal.Value.ToString();
+            } else if (val is OptionSetValue osVal) {
+                return osVal.Value.ToString();
+            } else
+                return "";
 
         }
 
         private static string updateString(Entity preEntity, Entity postEntity) {
-            string new_spdescription = "";
+            StringBuilder sb = new StringBuilder();
 
-            if (preEntity.Contains("name")) {
-                if (preEntity?.GetAttributeValue<string>("name") != postEntity?.GetAttributeValue<string>("name")) {
-                    new_spdescription += (new_spdescription == "") ? "" : "\n";
-                    new_spdescription += $"name from [{preEntity?.GetAttributeValue<string>("name")}] to [{postEntity?.GetAttributeValue<string>("name")}]";
-                }
+            var allKeys = preEntity.Attributes.Keys.Union(postEntity.Attributes.Keys);
+            var diffKeys = allKeys
+                .Where(k => stringVal((preEntity.Contains(k)) ? preEntity.Attributes[k]:null) !=
+                            stringVal((postEntity.Contains(k)) ? postEntity.Attributes[k] : null))
+                .Take(100); 
+            foreach(var k in diffKeys) {
+                if (sb.Length > 0) sb.Append("\n");
+                sb.Append($"{k} [{stringVal(preEntity.Contains(k)?preEntity.Attributes[k]:null)}]" +
+                    $"-[{stringVal(postEntity.Contains(k)?postEntity.Attributes[k]:null)}]");
             }
-            if (preEntity.Contains("fullname")) {
-                if (preEntity?.GetAttributeValue<string>("fullname") != postEntity?.GetAttributeValue<string>("fullname")) {
-                    new_spdescription += (new_spdescription == "") ? "" : "\n";
-                    new_spdescription += $"fullname from [{preEntity?.GetAttributeValue<string>("fullname")}] to [{postEntity?.GetAttributeValue<string>("fullname")}]";
-                }
-            }
-
-            return new_spdescription;
+            return sb.ToString();
         }
 
         private static string extractName(Entity postEntity) {
